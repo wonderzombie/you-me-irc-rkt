@@ -80,7 +80,7 @@
 (define (ping-handler msg conn id)
   (define is-ping (equal? (irc-message-command msg) "PING"))
   (when is-ping
-    (define server-name (second (split-string (irc-message-raw msg))) ; FIXME
+    (define server-name (second (string-split (irc-message-raw msg)))) ; FIXME
     (define pong (format "PONG ~a" server-name))
     (send-msg pong conn)))
 
