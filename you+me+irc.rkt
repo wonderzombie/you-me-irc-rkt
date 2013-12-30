@@ -17,35 +17,35 @@
 (struct irc-message (prefix command params content raw))
 
 ;; Mutable (!) hash for storing message handlers.
-(define message-handlers
+(define *message-handlers*
   (make-hash))
 
 (define (add-message-handler fn)
-  (hash-set! message-handlers (gensym) fn))
+  (hash-set! *message-handlers* (gensym) fn))
 
 (define (remove-message-handler id)
-  (hash-remove! message-handlers id))
+  (hash-remove! *message-handlers* id))
 
 ;; TODO: define these with a macro instead of the dumb implementation here.
-(define (send-pass-msg pass out)
+(define (send-pass-msg pass conn)
   (define msg (format "PASS ~a" pass))
-  (send-msg msg out))
+  (send-msg msg conn))
 
-(define (send-nick-msg nick out)
+(define (send-nick-msg nick conn)
   (define msg (format "NICK ~a" nick))
-  (send-msg msg out))
+  (send-msg msg conn))
 
-(define (send-user-msg user realname out)
+(define (send-user-msg user realname conn)
   (define msg (format "USER ~a 0 * :~a" user realname))
-  (send-msg msg out))
+  (send-msg msg conn))
 
-(define (send-join-msg channel out)
+(define (send-join-msg channel conn)
   (define msg (format "JOIN #~a" channel))
-  (send-msg msg out))
+  (send-msg msg conn))
 
-(define (send-privmsg-msg target content out)
+(define (send-privmsg-msg target content conn)
   (define msg (format "PRIVMSG ~a :~a" target content))
-  (send-msg msg out))
+  (send-msg msg conn))
 
 ;;;;;
 
@@ -123,7 +123,7 @@
 
 (define (message-loop conn handlers)
   (define (invoke-handlers line conn)
-    (for ([kv (hash->list handlers)])
+    (for ([kv (hash->list handlers)]) ; Called for side effects.
       ((cdr kv) line conn (car kv))))
   (define (loop)
     (define line (read-line (irc-connection-in conn)))
@@ -162,7 +162,7 @@
     (map add-message-handler
          (list print-handler ping-handler privmsg-handler))
     (send-join-msg "test" conn)
-    (thread (thunk (message-loop conn message-handlers)))
+    (thread (thunk (message-loop conn *message-handlers*)))
     (values conn)))
 
 (module+ main
