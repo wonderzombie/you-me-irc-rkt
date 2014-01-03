@@ -2,9 +2,13 @@
 
 (require srfi/13
          rackunit
-         rackunit/text-ui)
+         rackunit/text-ui
+         (for-syntax racket/syntax))
 
-(struct irc-connection (in out))
+(struct irc-connection (in out) #:transparent)
+(struct bot (state) #:transparent)
+;; FIXME: "raw" shouldn't be in here. parse-irc-message should figure it out.
+(struct irc-message (prefix command params content raw) #:transparent)
 
 ;; For testing.
 (define (fake-irc-connection fake-input)
@@ -12,9 +16,6 @@
   (define out (open-output-string))
   (define conn (irc-connection in out))
   (values in out conn))
-
-;; FIXME: "raw" shouldn't be in here. parse-irc-message should figure it out.
-(struct irc-message (prefix command params content raw))
 
 ;; Mutable (!) hash for storing message handlers.
 (define *message-handlers*
@@ -74,17 +75,17 @@
 
 ;;;;;
 
-(define (print-handler msg conn id)
+(define (print-handler b msg conn id)
   (displayln (format "<- ~a" (string-trim-both (irc-message-raw msg)))))
 
-(define (ping-handler msg conn id)
+(define (ping-handler b msg conn id)
   (define is-ping (equal? (irc-message-command msg) "PING"))
   (when is-ping
     (define server-name (second (string-split (irc-message-raw msg)))) ; FIXME
     (define pong (format "PONG ~a" server-name))
     (send-msg pong conn)))
 
-(define (privmsg-handler msg conn id)
+(define (privmsg-handler b msg conn id)
   (define is-privmsg (equal? (irc-message-command msg) "PRIVMSG"))
   (when is-privmsg
     (define parts (string-split (irc-message-raw msg))) ; FIXME
@@ -96,11 +97,12 @@
   (displayln (format "-> ~a" msg))
   (fprintf out "~a\r\n" msg))
 
-(define (send-init-messages pass conn)
+(define (init-irc-conn pass chan conn)
   (when pass
     (send-pass-msg pass conn))
   (send-nick-msg "racketbot" conn)
-  (send-user-msg "racketbot" "racketbot" conn))
+  (send-user-msg "racketbot" "racketbot" conn)
+  (send-join-msg chan conn))
 
 ;; (define (is-welcome? msg)
 ;;   (define cmd (irc-message-command msg))
@@ -121,17 +123,25 @@
 ;;                 (eof-object? raw-msg))
 ;;       (loop))))
 
+(define (invoke-handlers b handlers msg conn)
+  (define handlers-list (hash->list handlers))
+  (define (invoker h b)
+    (define b+ ((car h) b msg conn (cdr h)))
+    (if (bot? b+) b+ b))
+  (foldl invoker b handlers-list))
+
 (define (message-loop conn handlers)
-  (define (invoke-handlers line conn)
-    (for ([kv (hash->list handlers)]) ; Called for side effects.
-      ((cdr kv) line conn (car kv))))
-  (define (loop)
+  (define new-bot (bot (hash)))
+  ;; (define (invoke-handlers b msg conn)
+  ;;   (for ([kv (hash->list handlers)])
+  ;;     ((cdr kv) b msg conn (car kv))))
+  (define (loop b)
     (define line (read-line (irc-connection-in conn)))
     (unless (eof-object? line)
       (define msg (parse-irc-message line))
-      (invoke-handlers msg conn)
-      (loop)))
-  (loop))
+      (define b+ (invoke-handlers b handlers msg conn))
+      (loop b+)))
+  (loop new-bot))
 
 (define message-loop-tests
   (test-suite
@@ -150,7 +160,7 @@
     (check-not-false (string-contains out-str "frotz"))
     (check-equal? 3 (count (curryr string-contains "quux")
                            (string-split out-str))))))
-    
+
 (define (irc-connect server #:port [port 6667] #:pass [pass #f])
   (define cust (make-custodian))
   (parameterize ([current-custodian cust])
@@ -158,10 +168,9 @@
       (let-values ([(in out) (tcp-connect server port)])
         (file-stream-buffer-mode out 'line)
         (irc-connection in out)))
-    (send-init-messages pass conn)
     (map add-message-handler
          (list print-handler ping-handler privmsg-handler))
-    (send-join-msg "test" conn)
+    (init-irc-conn pass "test" conn)
     (thread (thunk (message-loop conn *message-handlers*)))
     (values conn)))
 
