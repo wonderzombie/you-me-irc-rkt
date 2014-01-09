@@ -104,6 +104,35 @@
   (send-user-msg "racketbot" "racketbot" conn)
   (send-join-msg chan conn))
 
+(define (parse-user-command parts content)
+  (define pfx (first parts))
+  (define cmd (second parts))
+  (case cmd
+    [("PRIVMSG")
+     (irc-message pfx cmd (list (third parts)) content #f)]
+    [("JOIN")
+     (irc-message pfx cmd #f content #f)]
+    [else
+     (irc-message pfx cmd #f content #f)]))
+
+(define (parse-server-command parts content)
+  (case (first parts)
+    [("PING")
+     (irc-message (second parts) (first parts) #f #f #f)]
+    [else
+     (irc-message (first parts) (second parts) (drop parts 2) content #f)]))
+
+(define (parse-message msg)
+  (define msg-pieces
+    (string-split (if (string-prefix? msg ":") (string-drop msg 1) msg) ":"))
+  (define parts (string-split (first msg-pieces)))
+  (define content (if (> 2 (length msg-pieces)) (second msg-pieces) #f))
+  (if (string-contains (first parts) "!")
+      (parse-user-command parts content)
+      (parse-server-command parts content)))
+    
+       
+
 ;; (define (is-welcome? msg)
 ;;   (define cmd (irc-message-command msg))
 ;;   (define welcome-code "001")
