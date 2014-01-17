@@ -51,12 +51,12 @@
 ;;;;;
 
 ;; This is a mess.
-(define (parse-irc-message raw-msg)
-  (define parts (string-split raw-msg))
-  (define prefix (when (string-prefix? ":" (first parts))
-                   (string-drop (first parts) 1)))
-  (define cmd (if (> (length parts) 2) (second parts) (first parts)))
-  (irc-message prefix cmd #f #f raw-msg))
+;; (define (parse-irc-message raw-msg)
+;;   (define parts (string-split raw-msg))
+;;   (define prefix (when (string-prefix? ":" (first parts))
+;;                    (string-drop (first parts) 1)))
+;;   (define cmd (if (> (length parts) 2) (second parts) (first parts)))
+;;   (irc-message prefix cmd #f #f raw-msg))
 
 (define parse-irc-message-test
   (test-suite
@@ -104,6 +104,17 @@
   (send-user-msg "racketbot" "racketbot" conn)
   (send-join-msg chan conn))
 
+(define (nick-from-prefix msg)
+  (define prefix (irc-message-prefix msg))
+  (define nick-end (string-contains prefix "!"))
+  (substring prefix 0 nick-end))
+
+(define (user-from-prefix msg)
+  (define prefix (irc-message-prefix msg))
+  (define user-begin (add1 (string-contains prefix "~")))
+  (define user-end (string-contains prefix "@"))
+  (substring prefix user-begin user-end))
+
 (define (parse-user-command parts content)
   (define pfx (first parts))
   (define cmd (second parts))
@@ -122,15 +133,19 @@
     [else
      (irc-message (first parts) (second parts) (drop parts 2) content #f)]))
 
-(define (parse-message msg)
-  (define msg-pieces
-    (string-split (if (string-prefix? msg ":") (string-drop msg 1) msg) ":"))
-  (define parts (string-split (first msg-pieces)))
-  (define content (if (> 2 (length msg-pieces)) (second msg-pieces) #f))
-  (if (string-contains (first parts) "!")
-      (parse-user-command parts content)
-      (parse-server-command parts content)))
+(define (split-irc-msg msg)
+  (define colon-pos (string-contains msg ":"))
+  (if (number? colon-pos)
+      (values (substring msg 0 colon-pos)
+              (substring msg (add1 colon-pos)))
+      (values msg "")))
     
+(define (parse-irc-message msg)
+  (define-values (cmd-and-params content) (split-irc-msg (string-trim msg #\:))) 
+  (define cmd-parts (string-split cmd-and-params))
+  (if (string-contains (first cmd-parts) "!")
+      (parse-user-command cmd-parts content)
+      (parse-server-command cmd-parts content)))
        
 
 ;; (define (is-welcome? msg)
